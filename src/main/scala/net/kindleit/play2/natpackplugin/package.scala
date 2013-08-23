@@ -124,11 +124,14 @@ fi
 """, initName)
 
   //local Play start file
-  private[natpackplugin] def startFileContent = format(
-"""#!/usr/bin/env sh
+  private[natpackplugin] def startFileContent(configFileName : String) = {
+    val configFileString = if (configFileName.isEmpty()) "" else "-Dconfig.file=`dirname $0`/"+configFileName
+    format(
+      """#!/usr/bin/env sh
 
 exec java $* -cp "`dirname $0`/lib/*" %s play.core.server.NettyServer `dirname $0` $@
-""", config.map(_ ⇒ "-Dconfig.file=`dirname $0`/application.conf ").getOrElse(""))
+      """, configFileString)
+  }
 
   // /etc/init.d init script
   private[natpackplugin] def initFilecontent(id: String, desc: String, user: String) = format(

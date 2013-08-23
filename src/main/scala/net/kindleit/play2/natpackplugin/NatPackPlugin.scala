@@ -30,6 +30,7 @@ object NatPackPlugin extends Plugin with debian.DebianPlugin {
     lazy val debianPostRm  = TaskKey[File]("debian-postrm-file",  "Debian post remove maintainer script")
     lazy val userName      = SettingKey[String]("Unix user to own the extracted package files")
     lazy val groupName     = SettingKey[String]("Unix group to own the extracted package files")
+    lazy val configFilePath = SettingKey[String]("Config file path for play application configuration [optional]")
   }
   private val npkg = NatPackKeys
 
@@ -51,12 +52,13 @@ object NatPackPlugin extends Plugin with debian.DebianPlugin {
 
     linuxPackageMappings <++=
       (baseDirectory, target, normalizedName, npkg.userName, npkg.groupName, packageSummary in Debian,
-       PlayProject.playPackageEverything, dependencyClasspath in Runtime) map {
-      (root, target, name, usr, grp, desc, pkgs, deps) ⇒
+       PlayProject.playPackageEverything, dependencyClasspath in Runtime, npkg.configFilePath) map {
+      (root, target, name, usr, grp, desc, pkgs, deps, configFilePath) ⇒
         val start = target / "start"
         val init  = target / "initFile"
+        val confFileName = configFilePath.split('/').array.last.mkString
 
-        IO.write(start, startFileContent)
+        IO.write(start, startFileContent(confFileName))
         IO.write(init,  initFilecontent(name, desc, usr))
 
         val jarLibs = (pkgs ++ deps.map(_.data)) filter(_.ext == "jar") map { jar ⇒
@@ -67,11 +69,22 @@ object NatPackPlugin extends Plugin with debian.DebianPlugin {
           packageMapping(root / cfg -> "/var/lib/%s/application.conf".format(name)) withUser(usr) withGroup(grp) withPerms("0644")
         }
 
+        val appConfPath  = {
+          if(configFilePath.nonEmpty) {
+            IO.write(target / confFileName, io.Source.fromFile(configFilePath).mkString)
+
+            Seq(packageMapping(target / confFileName -> "/var/lib/%s/lib/%s".format(name, confFileName)) withUser(usr) withGroup(grp) withPerms("0644"))
+          }
+          else {
+            Seq()
+          }
+        }
+
         val confFiles = Seq(
           packageMapping(start -> "/var/lib/%s/start".format(name)) withUser(usr) withGroup(grp),
-          packageMapping(init -> "/etc/init.d/%s".format(name)) withPerms("0754") withConfig(),
+          packageMapping(init -> "/etc/init.d/%s".format(name)) withPerms("0755") withConfig(),
           packageMapping(root / "README" -> "/var/lib/%s/README".format(name)) withUser(usr) withGroup(grp) withPerms("0644")
-        )
+        ) ++ appConfPath
 
         val otherPkgs = pkgs filter(_.ext != "jar") map { pkg ⇒
           packageMapping(pkg -> "/var/lib/%s/%s".format(name, pkg.getName)) withUser(usr) withGroup(grp)
